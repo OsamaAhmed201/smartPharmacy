@@ -1,19 +1,92 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { FiMail, FiShield, FiArrowRight, FiArrowLeft, FiCheckCircle } from "react-icons/fi";
+import { toast } from "react-toastify";
+import { z } from "zod";
+import { axiosInstance, USERS_URLS } from "../../Shere/Api/baseUrl";
 // المسارات
 import bgImage from "../../../assets/bg-ph.jpeg"; 
-import logoImg from "../../../assets/logo.png"; 
+import logoImg from "../../../assets/logo.png";
+
+// ====== Zod Validation Schema ======
+const verifyCodeSchema = z.object({
+  code: z
+    .string()
+    .min(1, "Verification code is required")
+    .min(6, "Code must be 6 digits")
+    .max(6, "Code must be 6 digits")
+    .regex(/^\d{6}$/, "Code must contain only numbers"),
+});
+
+type VerifyCodeForm = z.infer<typeof verifyCodeSchema>;
 
 export default function VerifyAcount() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
-  const [code, setCode] = useState("");
+  const [formData, setFormData] = useState<VerifyCodeForm>({
+    code: "",
+  });
+  const [errors, setErrors] = useState<Partial<Record<keyof VerifyCodeForm, string>>>({});
+  const [apiError, setApiError] = useState<string>("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Get email and source from navigation state
+  const email = location.state?.email || "your email";
+  const from = location.state?.from || "register";
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    // Only allow numbers
+    const numericValue = value.replace(/\D/g, '');
+    setFormData((prev) => ({ ...prev, [name]: numericValue }));
+    // Clear error on change
+    if (errors[name as keyof VerifyCodeForm]) {
+      setErrors((prev) => ({ ...prev, [name]: undefined }));
+    }
+    if (apiError) setApiError("");
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setApiError("");
+
+    // Validate with Zod
+    const result = verifyCodeSchema.safeParse(formData);
+    if (!result.success) {
+      const fieldErrors: Partial<Record<keyof VerifyCodeForm, string>> = {};
+      result.error.issues.forEach((err: any) => {
+        const field = err.path[0] as keyof VerifyCodeForm;
+        if (!fieldErrors[field]) {
+          fieldErrors[field] = err.message;
+        }
+      });
+      setErrors(fieldErrors);
+      return;
+    }
+
+    setErrors({});
     setIsLoading(true);
-    
-    setTimeout(() => setIsLoading(false), 2000);
+
+    try {
+      const response = await axiosInstance.post(USERS_URLS.VERIFY_RESET_CODE, { 
+        email, 
+        code: formData.code
+      });
+      toast.success(response.data.message || "Code verified successfully!");
+      
+      // Navigate based on source
+      if (from === "forgot-password") {
+        navigate("/resetPassword", { state: { email, code: formData.code } });
+      } else {
+        navigate("/login");
+      }
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.message || "Invalid verification code, please try again.";
+      setApiError(message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -62,9 +135,11 @@ export default function VerifyAcount() {
           {/* Header */}
           <div className="space-y-3">
            
-            <h2 className="text-3xl font-extrabold tracking-tight text-slate-900">Verify Account</h2>
+            <h2 className="text-3xl font-extrabold tracking-tight text-slate-900">
+              {from === "forgot-password" ? "Reset Password" : "Verify Account"}
+            </h2>
             <p className="text-slate-500 font-medium leading-relaxed">
-              Enter the code sent to <span className="text-slate-900 font-bold italic">ayajayyousi2002@gmail.com</span>
+              Enter the code sent to <span className="text-slate-900 font-bold italic">{email}</span>
             </p>
           </div>
 
@@ -77,19 +152,29 @@ export default function VerifyAcount() {
               <div className="relative">
                 <input
                   type="text"
+                  name="code"
                   maxLength={6}
-                  required
-                  defaultValue="466212"
-                  onChange={(e) => setCode(e.target.value)}
+                  value={formData.code}
+                  onChange={handleChange}
                   placeholder="000000"
-                  className="w-full tracking-[1em] text-center text-2xl rounded-2xl border border-slate-200 bg-slate-50 py-5 outline-none transition-all focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/5 font-black text-slate-900 placeholder:text-slate-200"
+                  className={`w-full tracking-[1em] text-center text-2xl rounded-2xl border ${errors.code ? "border-red-400 focus:border-red-500 focus:ring-red-500/5" : "border-slate-200 focus:border-teal-500 focus:ring-teal-500/5"} bg-slate-50 py-5 outline-none transition-all focus:bg-white focus:ring-4 font-black text-slate-900 placeholder:text-slate-200`}
                 />
               </div>
+              {errors.code && (
+                <p className="text-xs text-red-500 text-center mt-1">{errors.code}</p>
+              )}
               <p className="text-center text-xs text-slate-400 font-medium">
                 Didn't receive the code?{' '}
                 <button type="button" className="text-teal-600 font-bold hover:underline transition-all">Resend Code</button>
               </p>
             </div>
+
+            {/* API Error Message */}
+            {apiError && (
+              <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-600 font-medium text-center">
+                {apiError}
+              </div>
+            )}
 
             {/* Submit Button */}
             <button
@@ -108,11 +193,14 @@ export default function VerifyAcount() {
             </button>
           </form>
 
-          {/* Back to Sign Up */}
+          {/* Back Link */}
           <div className="text-center">
-            <Link to="/register" className="inline-flex items-center justify-center gap-2 text-sm font-bold text-slate-400 hover:text-teal-600 transition-colors group">
+            <Link 
+              to={from === "forgot-password" ? "/forget_pass" : "/register"} 
+              className="inline-flex items-center justify-center gap-2 text-sm font-bold text-slate-400 hover:text-teal-600 transition-colors group"
+            >
               <FiArrowLeft className="group-hover:-translate-x-1 transition-transform" />
-              <span>Change Email Address</span>
+              <span>{from === "forgot-password" ? "Change Email Address" : "Change Email Address"}</span>
             </Link>
           </div>
 

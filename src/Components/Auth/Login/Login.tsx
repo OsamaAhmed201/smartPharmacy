@@ -1,17 +1,85 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { FiMail, FiLock, FiEye, FiEyeOff, FiCheckCircle, FiArrowRight } from "react-icons/fi";
+import { toast } from "react-toastify";
+import { z } from "zod";
+import { axiosInstance, USERS_URLS } from "../../Shere/Api/baseUrl";
 import bgImage from "../../../assets/bg-ph.jpeg"; 
-import logoImg from "../../../assets/logo.png"; 
+import logoImg from "../../../assets/logo.png";
+
+// ====== Zod Validation Schema ======
+const loginSchema = z.object({
+  email: z
+    .string()
+    .min(1, "Email is required")
+    .regex(/^[^\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]+$/, "Email must not contain Arabic characters")
+    .email("Please enter a valid email address"),
+  password: z
+    .string()
+    .min(1, "Password is required")
+    .min(8, "Password must be at least 8 characters")
+    .regex(/[a-z]/, "Password must contain at least one lowercase letter")
+    .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
+    .regex(/[0-9]/, "Password must contain at least one number")
+    .regex(/[^a-zA-Z0-9]/, "Password must contain at least one special character"),
+});
+
+type LoginForm = z.infer<typeof loginSchema>;
 
 export default function Login() {
+  const navigate = useNavigate();
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [formData, setFormData] = useState<LoginForm>({
+    email: "",
+    password: "",
+  });
+  const [errors, setErrors] = useState<Partial<Record<keyof LoginForm, string>>>({});
+  const [apiError, setApiError] = useState<string>("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+    // Clear error on change
+    if (errors[name as keyof LoginForm]) {
+      setErrors((prev) => ({ ...prev, [name]: undefined }));
+    }
+    if (apiError) setApiError("");
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setApiError("");
+
+    // Validate with Zod
+    const result = loginSchema.safeParse(formData);
+    if (!result.success) {
+      const fieldErrors: Partial<Record<keyof LoginForm, string>> = {};
+      result.error.issues.forEach((err: any) => {
+        const field = err.path[0] as keyof LoginForm;
+        if (!fieldErrors[field]) {
+          fieldErrors[field] = err.message;
+        }
+      });
+      setErrors(fieldErrors);
+      return;
+    }
+
+    setErrors({});
     setIsLoading(true);
-    setTimeout(() => setIsLoading(false), 2000);
+
+    try {
+      const response = await axiosInstance.post(USERS_URLS.LOGIN, formData);
+      toast.success(response.data.message || "Login successful");
+      localStorage.setItem("token", response.data.token);
+      navigate("/dashboard");
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.message || "Something went wrong, please try again.";
+      setApiError(message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -81,12 +149,17 @@ export default function Login() {
               <div className="relative">
                 <FiMail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-teal-500 transition-colors" />
                 <input
-                  type="email"
-                  required
+                  type="text"
+                  name="email"
+                  value={formData.email}
+                  onChange={handleChange}
                   placeholder="name@alrazi.com"
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3.5 pl-11 pr-4 outline-none transition-all focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/5 font-medium"
+                  className={`w-full rounded-xl border ${errors.email ? "border-red-400 focus:border-red-500 focus:ring-red-500/5" : "border-slate-200 focus:border-teal-500 focus:ring-teal-500/5"} bg-slate-50 py-3.5 pl-11 pr-4 outline-none transition-all focus:bg-white focus:ring-4 font-medium`}
                 />
               </div>
+              {errors.email && (
+                <p className="text-xs text-red-500 ml-1 mt-1">{errors.email}</p>
+              )}
             </div>
 
             {/* Password Field */}
@@ -98,9 +171,11 @@ export default function Login() {
                 <FiLock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-teal-500 transition-colors" />
                 <input
                   type={showPassword ? "text" : "password"}
-                  required
+                  name="password"
+                  value={formData.password}
+                  onChange={handleChange}
                   placeholder="••••••••"
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3.5 pl-11 pr-12 outline-none transition-all focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/5 font-medium"
+                  className={`w-full rounded-xl border ${errors.password ? "border-red-400 focus:border-red-500 focus:ring-red-500/5" : "border-slate-200 focus:border-teal-500 focus:ring-teal-500/5"} bg-slate-50 py-3.5 pl-11 pr-12 outline-none transition-all focus:bg-white focus:ring-4 font-medium`}
                 />
                 <button
                   type="button"
@@ -110,6 +185,9 @@ export default function Login() {
                   {showPassword ? <FiEyeOff size={18} /> : <FiEye size={18} />}
                 </button>
               </div>
+              {errors.password && (
+                <p className="text-xs text-red-500 ml-1 mt-1">{errors.password}</p>
+              )}
               
               <div className="flex justify-end pt-1">
                 <Link to="/forget_pass" className="text-xs font-bold text-teal-600 hover:text-teal-700 transition-colors">
@@ -117,6 +195,13 @@ export default function Login() {
                 </Link>
               </div>
             </div>
+
+            {/* API Error Message */}
+            {apiError && (
+              <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-600 font-medium">
+                {apiError}
+              </div>
+            )}
 
             <button
               type="submit"

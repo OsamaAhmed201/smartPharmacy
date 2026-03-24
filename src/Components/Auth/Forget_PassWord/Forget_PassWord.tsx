@@ -1,22 +1,77 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { FiMail, FiArrowRight, FiArrowLeft, FiCheckCircle } from "react-icons/fi";
+import { toast } from "react-toastify";
+import { z } from "zod";
+import { axiosInstance, USERS_URLS } from "../../Shere/Api/baseUrl";
 // المسارات
 import bgImage from "../../../assets/bg-ph.jpeg"; 
-import logoImg from "../../../assets/logo.png"; 
+import logoImg from "../../../assets/logo.png";
+
+// ====== Zod Validation Schema ======
+const forgotPasswordSchema = z.object({
+  email: z
+    .string()
+    .min(1, "Email is required")
+    .regex(/^[^\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]+$/, "Email must not contain Arabic characters")
+    .email("Please enter a valid email address"),
+});
+
+type ForgotPasswordForm = z.infer<typeof forgotPasswordSchema>;
 
 export default function Forget_PassWord() {
+  const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
   const [isSent, setIsSent] = useState(false);
+  const [formData, setFormData] = useState<ForgotPasswordForm>({
+    email: "",
+  });
+  const [errors, setErrors] = useState<Partial<Record<keyof ForgotPasswordForm, string>>>({});
+  const [apiError, setApiError] = useState<string>("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+    // Clear error on change
+    if (errors[name as keyof ForgotPasswordForm]) {
+      setErrors((prev) => ({ ...prev, [name]: undefined }));
+    }
+    if (apiError) setApiError("");
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setApiError("");
+
+    // Validate with Zod
+    const result = forgotPasswordSchema.safeParse(formData);
+    if (!result.success) {
+      const fieldErrors: Partial<Record<keyof ForgotPasswordForm, string>> = {};
+      result.error.issues.forEach((err: any) => {
+        const field = err.path[0] as keyof ForgotPasswordForm;
+        if (!fieldErrors[field]) {
+          fieldErrors[field] = err.message;
+        }
+      });
+      setErrors(fieldErrors);
+      return;
+    }
+
+    setErrors({});
     setIsLoading(true);
-    // محاكاة إرسال رابط استعادة كلمة المرور
-    setTimeout(() => {
+
+    try {
+      const response = await axiosInstance.post(USERS_URLS.FORGOT_PASSWORD, formData);
+      toast.success(response.data.message || "Password reset link sent successfully");
+      // Navigate to verify page with email
+      navigate("/verify", { state: { email: formData.email, from: "forgot-password" } });
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.message || "Something went wrong, please try again.";
+      setApiError(message);
+    } finally {
       setIsLoading(false);
-      setIsSent(true);
-    }, 2000);
+    }
   };
 
   return (
@@ -78,13 +133,25 @@ export default function Forget_PassWord() {
                 <div className="relative">
                   <FiMail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-teal-500 transition-colors" />
                   <input
-                    type="email"
-                    required
+                    type="text"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleChange}
                     placeholder="ayajayousi2002@gmail.com"
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3.5 pl-11 pr-4 outline-none transition-all focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/5 font-medium"
+                    className={`w-full rounded-xl border ${errors.email ? "border-red-400 focus:border-red-500 focus:ring-red-500/5" : "border-slate-200 focus:border-teal-500 focus:ring-teal-500/5"} bg-slate-50 py-3.5 pl-11 pr-4 outline-none transition-all focus:bg-white focus:ring-4 font-medium`}
                   />
                 </div>
+                {errors.email && (
+                  <p className="text-xs text-red-500 ml-1 mt-1">{errors.email}</p>
+                )}
               </div>
+
+              {/* API Error Message */}
+              {apiError && (
+                <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-600 font-medium">
+                  {apiError}
+                </div>
+              )}
 
               {/* Submit Button */}
               <button
@@ -96,7 +163,7 @@ export default function Forget_PassWord() {
                   <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-white" />
                 ) : (
                   <>
-                    <span>Send Reset Link</span>
+                    <span>Send </span>
                     <FiArrowRight className="text-lg" />
                   </>
                 )}
@@ -112,12 +179,20 @@ export default function Forget_PassWord() {
               <p className="text-sm text-teal-800 leading-relaxed">
                 If an account exists for that email, you will receive a password reset link shortly.
               </p>
-              <button 
-                onClick={() => setIsSent(false)} 
-                className="text-xs font-bold text-teal-600 hover:text-teal-800 transition-colors underline underline-offset-4"
-              >
-                Didn't get it? Try again
-              </button>
+              <div className="flex gap-3 pt-2">
+                <button 
+                  onClick={() => setIsSent(false)} 
+                  className="text-xs font-bold text-teal-600 hover:text-teal-800 transition-colors underline underline-offset-4"
+                >
+                  Try different email
+                </button>
+                <Link 
+                  to="/login" 
+                  className="text-xs font-bold text-teal-600 hover:text-teal-800 transition-colors underline underline-offset-4"
+                >
+                  Back to Login
+                </Link>
+              </div>
             </div>
           )}
 
